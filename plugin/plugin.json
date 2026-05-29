@@ -1,0 +1,15 @@
+{
+  "name": "sticks3-buddy",
+  "version": "0.1.0",
+  "description": "M5Stack StickS3 hardware companion for Claude Code — physical button approval of permission prompts",
+  "hooks": {
+    "PermissionRequest": {
+      "script": "scripts/on-permission-request.py",
+      "timeout": 100
+    },
+    "PreToolUse": {
+      "script": "scripts/on-pre-tool-use.py",
+      "timeout": 2
+    }
+  }
+}

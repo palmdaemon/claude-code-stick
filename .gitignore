@@ -1,0 +1,35 @@
+# Build artifacts
+firmware/.pio/
+firmware/.vscode/
+firmware/data/.DS_Store
+
+# Python venv
+bridge-venv/
+bridge/__pycache__/
+**/__pycache__/
+*.pyc
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# User secrets / runtime config
+*.local
+.env
+
+# Local archive / private notes
+_archive/
+_private/
+STATUS.md
+NEXT_STEPS.md
+RESEARCH.md
+RESEARCH_CARDPUTER.md
+
+# Build outputs that contain absolute paths with username (DWARF debug info)
+*.elf
+*.map
+
+# Logs
+/tmp/bridge.log
+/tmp/sticks3_monitor.log

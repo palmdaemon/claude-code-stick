@@ -1,0 +1,68 @@
+claude-code-stick
+Copyright 2026 Seager (https://github.com/s34g3r)
+Licensed under the MIT License.
+
+This product includes software developed by third parties as listed below.
+Full license texts are kept in THIRD_PARTY_LICENSES/.
+
+──────────────────────────────────────────────────────────────────────────
+DERIVED FROM
+──────────────────────────────────────────────────────────────────────────
+
+  anthropics/claude-desktop-buddy
+  Copyright 2026 Anthropic, PBC
+  Licensed under the MIT License.
+  https://github.com/anthropics/claude-desktop-buddy
+
+  The following firmware/src/ files are verbatim copies or modifications:
+    ble_bridge.cpp, ble_bridge.h          (verbatim, MIT)
+    buddies/*.cpp                          (18 files, modified, MIT)
+    buddy.cpp, buddy.h, buddy_common.h
+    character.cpp, character.h
+    data.h, stats.h, xfer.h, main.cpp     (modified, MIT)
+
+──────────────────────────────────────────────────────────────────────────
+ART / ANIMATION ASSETS
+──────────────────────────────────────────────────────────────────────────
+
+  Clawd character animations (firmware/data/characters/clawd/*.gif)
+  Adapted from marciogranzotto/clawd-tank
+  Copyright (c) marciogranzotto
+  Licensed under the MIT License.
+  https://github.com/marciogranzotto/clawd-tank
+
+  Clawd is the Anthropic Claude mascot. Used here under fan/community
+  conventions. Not affiliated with or endorsed by Anthropic.
+
+──────────────────────────────────────────────────────────────────────────
+DEPENDENCIES (linked at build time, not redistributed in source form)
+──────────────────────────────────────────────────────────────────────────
+
+  M5Stack / M5Unified           MIT       https://github.com/m5stack/M5Unified
+  bitbank2 / AnimatedGIF        Apache 2  https://github.com/bitbank2/AnimatedGIF
+  bblanchon / ArduinoJson       MIT       https://github.com/bblanchon/ArduinoJson
+  Links2004 / WebSockets        LGPL-2.1  https://github.com/Links2004/arduinoWebSockets
+
+──────────────────────────────────────────────────────────────────────────
+THIRD-PARTY SERVICES (called at runtime, not bundled)
+──────────────────────────────────────────────────────────────────────────
+
+  Alibaba Cloud DashScope (Qwen3-ASR-Flash)
+  https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference
+  Requires a separately-acquired API key. DashScope is a trademark of
+  Alibaba Cloud. This project is not affiliated with Alibaba Cloud.
+
+  Anthropic Claude Code
+  https://claude.ai/code
+  Hardware accessory for Claude Code. Claude, Claude Code, and Clawd
+  are trademarks of Anthropic, PBC. This project is not affiliated with,
+  endorsed by, or sponsored by Anthropic.
+
+──────────────────────────────────────────────────────────────────────────
+DEVICE NAME DISCLAIMER
+──────────────────────────────────────────────────────────────────────────
+
+  The default device name "Echo" used in this firmware is unrelated to
+  and not affiliated with Amazon Echo or Amazon.com, Inc. The name is
+  a placeholder borrowed from the Greek mythological nymph Echo. Users
+  are encouraged to rename their device — see Configuration in README.
