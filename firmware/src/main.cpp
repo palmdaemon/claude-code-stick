@@ -64,17 +64,24 @@ uint32_t sendPendingUntil = 0;
 static const char* _moodLabel = nullptr;  // updated each loop by characterIdleMoodTick; nullptr = no burst
 
 // ── Boot status UI ──────────────────────────────────────────────────────
-// Stages cleanly advance forward as wifi → ble → init handshake complete.
-// Once BOOT_DONE we never go back even if a link drops — the regular HUD
-// status strip (BLE+ WiFi+ bat) already reports liveness.
+// Stages cleanly advance: wifi → ble → init → done. BOOT_BLE has an 8s
+// timeout: if no bridge client connects (Mac asleep/lid closed/out of range),
+// we drop to BOOT_OFFLINE — buddy keeps living, just no permission/recording.
+// If BLE later comes up, OFFLINE promotes back to BOOT_INIT.
+// The UI is a mid-lower banner (y=128-206) that NEVER blocks character render
+// — clawd (135x120) lives in y=0-120, so banner doesn't overlap.
 enum BootStage : uint8_t {
   BOOT_WIFI,        // wifi connecting / no saved network
   BOOT_BLE,         // wifi ok, awaiting BLE client (bridge.py scan/connect)
   BOOT_INIT,        // BLE client linked, awaiting hello/init handshake
-  BOOT_DONE,        // everything ready — regular UI takes over
+  BOOT_DONE,        // everything ready — buddy live + bridge linked
+  BOOT_OFFLINE,     // BLE timeout — buddy live, no bridge (degraded mode)
 };
 static BootStage _bootStage = BOOT_WIFI;
-static uint32_t  _bootDoneAt = 0;   // millis when we transitioned to DONE (for brief "READY" flash)
+static uint32_t  _bootDoneAt = 0;    // millis when we entered DONE/OFFLINE (for brief banner flash)
+static uint32_t  _bleStartedAt = 0;  // millis when we entered BOOT_BLE (for 8s timeout)
+static const uint32_t BLE_WAIT_MS    = 8000;  // 8s then fall to OFFLINE
+static const uint32_t BANNER_HOLD_MS = 5000;  // keep banner 5s after stable state reached
 
 enum DisplayMode { DISP_NORMAL, DISP_INFO };
 uint8_t displayMode = DISP_NORMAL;
@@ -423,6 +430,24 @@ PersonaState derive(const TamaState& s) {
   return P_IDLE;
 }
 
+// PersonaState (main-loop semantic) → CharacterState (GIF asset key).
+// ASCII buddy reads activeState directly; GIF clawd has its own _state in
+// character.cpp and needs this bridge — without it, shake/busy/celebrate
+// never reach the GIF and clawd looks stuck in idle.
+// P_HEART falls back to CHAR_HAPPY (clawd ships no heart.gif).
+static CharacterState personaToChar(PersonaState p) {
+  switch (p) {
+    case P_SLEEP:     return CHAR_SLEEPING;
+    case P_BUSY:      return CHAR_WORKING_TYPING;
+    case P_ATTENTION: return CHAR_NOTIFICATION;
+    case P_CELEBRATE: return CHAR_HAPPY;
+    case P_DIZZY:     return CHAR_DIZZY;
+    case P_HEART:     return CHAR_HAPPY;
+    case P_IDLE:
+    default:          return CHAR_IDLE;
+  }
+}
+
 void triggerOneShot(PersonaState s, uint32_t durMs) {
   activeState = s;
   oneShotUntil = millis() + durMs;
@@ -679,10 +704,19 @@ static void tinyHeart(int x, int y, bool filled, uint16_t col) {
 static void _bootTick() {
   switch (_bootStage) {
     case BOOT_WIFI:
-      if (wifiState() == WIFI_CONNECTED) _bootStage = BOOT_BLE;
+      if (wifiState() == WIFI_CONNECTED) {
+        _bootStage = BOOT_BLE;
+        _bleStartedAt = millis();
+      }
       break;
     case BOOT_BLE:
-      if (bleConnected()) _bootStage = BOOT_INIT;
+      if (bleConnected()) {
+        _bootStage = BOOT_INIT;
+      } else if (millis() - _bleStartedAt > BLE_WAIT_MS) {
+        // No bridge in range (Mac asleep/closed/away) → degrade gracefully.
+        _bootStage = BOOT_OFFLINE;
+        _bootDoneAt = millis();
+      }
       break;
     case BOOT_INIT:
       if (asrHasEndpoint()) {
@@ -692,74 +726,76 @@ static void _bootTick() {
       break;
     case BOOT_DONE:
       break;
+    case BOOT_OFFLINE:
+      // BLE came online later (e.g. Mac woke up) → resume online init.
+      // _bootDoneAt reset so the next stable transition re-flashes banner.
+      if (bleConnected()) {
+        _bootStage = BOOT_INIT;
+        _bootDoneAt = 0;
+      }
+      break;
   }
 }
 
-static void drawBootStatus() {
+// Mid-lower banner: y=128-206 (78px high). Lives in the gap between
+// clawd GIF (y=0-120) and HUD status strip (y=228-240) — physically can't
+// collide with character render. No pushSprite here: caller controls
+// when sprite hits the display so banner composites on top of clawd
+// in a single batched push.
+static void drawBootBanner() {
   const Palette& p = characterPalette();
-  spr.fillSprite(p.bg);
+  const int BX = 4, BW = W - 8;
+  const int BY = 128, BH = 78;
+
+  // Panel background + border
+  spr.fillRoundRect(BX, BY, BW, BH, 3, PANEL);
+  spr.drawRoundRect(BX, BY, BW, BH, 3, p.textDim);
+
   spr.setTextSize(1);
+  bool wifiOk  = wifiState() == WIFI_CONNECTED;
+  bool bleOk   = bleConnected();
+  bool initOk  = asrHasEndpoint();
+  bool offline = (_bootStage == BOOT_OFFLINE);
+  bool done    = (_bootStage == BOOT_DONE);
 
-  // Title
-  spr.setTextColor(p.text, p.bg);
-  spr.setCursor(8, 14);
-  spr.print("STARTING");
-  spr.setTextColor(p.textDim, p.bg);
-  spr.setCursor(8, 26);
-  spr.print(btName);
-  spr.drawFastHLine(8, 38, W - 16, p.textDim);
+  int y = BY + 5;
 
-  int y = 48;
-  bool wifiOk = wifiState() == WIFI_CONNECTED;
-  bool bleOk  = bleConnected();
-  bool initOk = asrHasEndpoint();
+  // Title (left) + state hint (right)
+  spr.setTextColor(done ? GREEN : (offline ? HOT : p.text), PANEL);
+  spr.setCursor(BX + 4, y);
+  spr.print(done ? "READY" : offline ? "OFFLINE" : "STARTING");
+  y += 11;
 
-  // 1) WiFi
-  spr.setTextColor(wifiOk ? GREEN : p.textDim, p.bg);
-  spr.setCursor(8, y);
+  // WIFI line
+  spr.setTextColor(wifiOk ? GREEN : p.textDim, PANEL);
+  spr.setCursor(BX + 4, y);
   spr.printf("%s WIFI", wifiOk ? "[ok]" : "[..]");
   y += 11;
-  spr.setTextColor(p.textDim, p.bg);
-  if (wifiOk) {
-    spr.setCursor(14, y); spr.printf("%s", wifiSsid());                   y += 9;
-    spr.setCursor(14, y); spr.printf("%s", wifiIp().toString().c_str()); y += 9;
+
+  // BLE line — special handling for OFFLINE
+  if (offline) {
+    spr.setTextColor(HOT, PANEL);
+    spr.setCursor(BX + 4, y);
+    spr.print("[--] BLE no host");
   } else {
-    spr.setCursor(14, y); spr.printf("%s", wifiStateLabel()); y += 9;
+    spr.setTextColor(bleOk ? GREEN : p.textDim, PANEL);
+    spr.setCursor(BX + 4, y);
+    spr.printf("%s BLE", bleOk ? "[ok]" : "[..]");
   }
-
-  // 2) BLE
-  y += 4;
-  spr.setTextColor(bleOk ? GREEN : p.textDim, p.bg);
-  spr.setCursor(8, y);
-  spr.printf("%s BLE", bleOk ? "[ok]" : "[..]");
   y += 11;
-  spr.setTextColor(p.textDim, p.bg);
-  spr.setCursor(14, y);
-  spr.print(bleOk ? "client linked" : "awaiting bridge");
-  y += 9;
 
-  // 3) Bridge init handshake
-  y += 4;
-  spr.setTextColor(initOk ? GREEN : p.textDim, p.bg);
-  spr.setCursor(8, y);
+  // BRIDGE line
+  spr.setTextColor(initOk ? GREEN : p.textDim, PANEL);
+  spr.setCursor(BX + 4, y);
   spr.printf("%s BRIDGE", initOk ? "[ok]" : "[..]");
-  y += 11;
-  spr.setTextColor(p.textDim, p.bg);
-  if (initOk) {
-    spr.setCursor(14, y);
-    spr.printf("%s:%u", asrEndpointIp(), (unsigned)asrEndpointPort());
-  } else {
-    spr.setCursor(14, y);
-    spr.print(bleOk ? "awaiting init" : "...");
-  }
-  y += 9;
+  y += 13;
 
-  // Footer
-  spr.setTextColor(_bootStage == BOOT_DONE ? GREEN : p.textDim, p.bg);
-  spr.setCursor(8, H - 14);
-  spr.print(_bootStage == BOOT_DONE ? "READY" : "waiting...");
-
-  spr.pushSprite(0, 0);
+  // Footer hint
+  spr.setTextColor(p.textDim, PANEL);
+  spr.setCursor(BX + 4, y);
+  if (done)         spr.print("bridge linked");
+  else if (offline) spr.print("buddy live solo");
+  else              spr.print("waiting...");
 }
 
 void drawHUD() {
@@ -1097,15 +1133,29 @@ void loop() {
   if (pk && !lastPasskey) { wake(); beep(1800, 60); }
   lastPasskey = pk;
 
-  // Boot-status UI takeover. Owns the screen until handshake completes
-  // (or for a brief moment after, so user catches the "READY" flash).
+  // Boot banner: shown in mid-lower region (y=128-206) during all unstable
+  // stages (WIFI/BLE/INIT) plus a brief 5s flash after reaching stable state
+  // (DONE = bridge linked, OFFLINE = bridge timed out). The banner is an
+  // OVERLAY — character render is no longer blocked by boot. Clawd lives
+  // y=0-120, banner lives y=128-206; physically can't collide.
   _bootTick();
-  bool _booting = (_bootStage != BOOT_DONE)
-               || (_bootDoneAt && (int32_t)(millis() - _bootDoneAt - 2000) < 0);
+  bool _stable = (_bootStage == BOOT_DONE || _bootStage == BOOT_OFFLINE);
+  bool _showBanner = !_stable
+        || (_bootDoneAt && (int32_t)(millis() - _bootDoneAt - BANNER_HOLD_MS) < 0);
 
-  if (napping || screenOff || landscapeClock || _booting) {
-    // skip character render — either screen's off, clock has the screen,
-    // or we're still drawing the boot panel below.
+  // Banner edge-off: when banner stops showing, force a full redraw so the
+  // panel pixels don't linger on screen.
+  {
+    static bool _last_show_banner = false;
+    if (_last_show_banner && !_showBanner) {
+      characterInvalidate();
+      if (buddyMode) buddyInvalidate();
+    }
+    _last_show_banner = _showBanner;
+  }
+
+  if (napping || screenOff || landscapeClock) {
+    // skip character render — screen's off or clock has the screen.
   } else {
     // Overlay open/close paths set characterInvalidate(); wipe sprite first.
     if (characterTakeDirty()) {
@@ -1122,6 +1172,14 @@ void loop() {
     bool overlay = menuOpen || settingsOpen || resetOpen
                    || displayMode == DISP_INFO;
     if (characterLoaded() && !overlay) {
+      // Bridge activeState → clawd _state. Only on transition: every-frame
+      // set would clobber the idle mood randomizer's 5s bursts (it also
+      // calls characterSetState while burst is active).
+      static PersonaState _lastPersona = (PersonaState)0xFF;
+      if (activeState != _lastPersona) {
+        characterSetState(personaToChar(activeState));
+        _lastPersona = activeState;
+      }
       characterTick();
       characterRenderTo(&spr, 0, 0);
     } else if (buddyMode && !overlay) {
@@ -1129,9 +1187,7 @@ void loop() {
     }
   }
 
-  if (_booting && !napping && !screenOff) {
-    drawBootStatus();   // includes pushSprite
-  } else if (landscapeClock) {
+  if (landscapeClock) {
     drawClock();
   } else if (!napping && !screenOff) {
     if (blePasskey()) drawPasskey();
@@ -1141,6 +1197,14 @@ void loop() {
     if (resetOpen) drawReset();
     else if (settingsOpen) drawSettings();
     else if (menuOpen) drawMenu();
+
+    // Boot banner overlay (y=128-206). Suppress when any UI shares that
+    // region: prompt (y=162+), info (y=70+), clock (y=90+), modal overlays
+    // (centered), or pairing passkey (full-screen takeover).
+    bool _showBootBanner = _showBanner && !blePasskey() && !inPrompt
+        && !menuOpen && !settingsOpen && !resetOpen
+        && displayMode == DISP_NORMAL && !clocking;
+    if (_showBootBanner) drawBootBanner();
 
     // Post-recording send-Enter window: 5-second countdown banner so the
     // user knows a short KEY1 tap will press Enter on the desktop.
