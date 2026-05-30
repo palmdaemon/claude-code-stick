@@ -134,7 +134,14 @@ static bool openStateGif(CharacterState s) {
   _gif_open = true;
   _state    = s;
   _next_frame_at = millis();
-  characterInvalidate();
+  // No characterInvalidate() here — that would set the dirty flag, causing
+  // main.cpp's characterTakeDirty() to wipe the sprite on the NEXT frame.
+  // While the new GIF waits for _next_frame_at to advance (idle.gif: 260ms),
+  // characterRenderTo returns without drawing → pushSprite ships pure black
+  // = visible "flash" on switch. Callers needing a wipe-on-switch (e.g.
+  // PersonaState transitions in main.cpp) should fillSprite themselves
+  // around the characterSetState call — that wipe + first-frame render
+  // happen in the same frame and there's no flicker.
   return true;
 }
 

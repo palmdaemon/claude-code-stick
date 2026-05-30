@@ -453,13 +453,55 @@ void triggerOneShot(PersonaState s, uint32_t durMs) {
   oneShotUntil = millis() + durMs;
 }
 
+// Shake detection: classic "N shocks in a window" pattern. A single jolt
+// (set device down, pick up, footstep) shouldn't trigger — real shake is
+// rapid direction reversals. We count high-g events (>1.2g departure from
+// rest) and only fire when 3+ land inside an 800ms window. 3s cooldown
+// after firing prevents the dizzy oneShot itself from triggering another.
+// Tunables (adjust if feel is off):
+//   SHAKE_THRESHOLD_G  — 0.8 too sensitive, 1.2 = real shake, 1.5 = needs effort
+//   SHAKE_WINDOW_MS    — 800ms catches normal hand shake; tighten for "fast"
+//   SHAKE_REQUIRED_HITS — 3 = comfortable, 2 = easier, 4 = needs vigorous shake
+//   SHAKE_COOLDOWN_MS  — 3s avoids double-fire while dizzy GIF plays
 bool checkShake() {
+  static const float    SHAKE_THRESHOLD_G   = 1.2f;
+  static const uint32_t SHAKE_WINDOW_MS     = 800;
+  static const uint8_t  SHAKE_REQUIRED_HITS = 3;
+  static const uint32_t SHAKE_COOLDOWN_MS   = 3000;
+  static const uint8_t  SHOCK_BUF = 5;
+  static uint32_t shockTimes[SHOCK_BUF] = {0};
+  static uint8_t  shockIdx = 0;
+  static uint32_t lastTriggerMs = 0;
+
+  uint32_t now = millis();
+
+  // Cooldown: don't re-fire while dizzy is still playing or right after.
+  if (now - lastTriggerMs < SHAKE_COOLDOWN_MS) return false;
+
   float ax, ay, az;
   M5.Imu.getAccel(&ax, &ay, &az);
   float mag = sqrtf(ax*ax + ay*ay + az*az);
-  float delta = fabsf(mag - accelBaseline);
+  float delta = fabsf(mag - 1.0f);  // subtract gravity (1g rest)
+
+  // Update slow baseline so persistent tilt/motion doesn't pin delta high.
   accelBaseline = accelBaseline * 0.95f + mag * 0.05f;
-  return delta > 0.8f;
+
+  if (delta > SHAKE_THRESHOLD_G) {
+    shockTimes[shockIdx] = now;
+    shockIdx = (shockIdx + 1) % SHOCK_BUF;
+
+    uint8_t hitsInWindow = 0;
+    for (uint8_t i = 0; i < SHOCK_BUF; i++) {
+      if (shockTimes[i] && (now - shockTimes[i]) < SHAKE_WINDOW_MS) hitsInWindow++;
+    }
+    if (hitsInWindow >= SHAKE_REQUIRED_HITS) {
+      lastTriggerMs = now;
+      // Reset buffer so we don't immediately count the same shocks again.
+      for (uint8_t i = 0; i < SHOCK_BUF; i++) shockTimes[i] = 0;
+      return true;
+    }
+  }
+  return false;
 }
 
 static void _infoHeader(const Palette& p, int& y, const char* section, uint8_t page) {
@@ -1178,6 +1220,17 @@ void loop() {
       static PersonaState _lastPersona = (PersonaState)0xFF;
       if (activeState != _lastPersona) {
         characterSetState(personaToChar(activeState));
+        // Clear-on-switch: wipe sprite ONCE this frame so leftover pixels
+        // from the previous GIF don't bleed through the new GIF's first
+        // frame ("two-clawd overlap" flash). characterTick + characterRenderTo
+        // below run in the same frame so the wiped sprite gets the new
+        // first frame drawn immediately before pushSprite.
+        // DO NOT also call characterInvalidate() here — it sets a dirty flag
+        // that characterTakeDirty() would consume NEXT frame, forcing a
+        // second wipe; while the new GIF waits for _next_frame_at (e.g.
+        // idle.gif: 260ms), pushSprite ships the wiped-but-not-yet-redrawn
+        // sprite as pure black = visible "flash" on switch into idle.
+        spr.fillSprite(0x0000);
         _lastPersona = activeState;
       }
       characterTick();
