@@ -64,6 +64,12 @@ void characterTick();
 // Pass skip=true to suppress (e.g. screenOff/inPrompt/napping/recording).
 const char* characterIdleMoodTick(bool skip);
 
+// Reset mood-burst state machine WITHOUT touching the GIF _requested.
+// Call when an external state change (e.g. shake → P_DIZZY transition)
+// is about to override _requested — prevents the next mood tick from
+// returning a stale label for ~5s after the override.
+void characterIdleMoodAbort();
+
 // Composite the current frame onto a LovyanGFX target at (x, y). The
 // canvas is 135×120 by convention (preserves transparency through alpha
 // blending — caller's background shows through).

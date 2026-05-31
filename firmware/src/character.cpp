@@ -223,6 +223,16 @@ static void _scheduleNextMood(uint32_t now) {
   _nextMoodAt = now + MOOD_MIN_INTERVAL_MS + (esp_random() % (span + 1));
 }
 
+void characterIdleMoodAbort() {
+  // Caller is about to override _requested (e.g. activeState transitioned
+  // mid-burst); clear burst bookkeeping so the next characterIdleMoodTick
+  // doesn't keep returning the stale label until _moodEndsAt expires.
+  // Do NOT call characterSetState — caller will set the new state.
+  _activeMoodIdx = -1;
+  _moodEndsAt    = 0;
+  _nextMoodAt    = 0;
+}
+
 const char* characterIdleMoodTick(bool skip) {
   if (!_loaded) return nullptr;
   uint32_t now = millis();

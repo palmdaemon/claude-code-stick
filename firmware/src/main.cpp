@@ -1219,6 +1219,14 @@ void loop() {
       // calls characterSetState while burst is active).
       static PersonaState _lastPersona = (PersonaState)0xFF;
       if (activeState != _lastPersona) {
+        // Abort mood-burst bookkeeping BEFORE characterSetState. If a burst
+        // was mid-flight ("*sweep*"), characterIdleMoodTick's burst-in-progress
+        // branch would otherwise keep returning the stale label until the
+        // 5s _moodEndsAt window expires — visible as "HUD says *sweep* but
+        // clawd shows DIZZY". Also clear _moodLabel so this frame's drawHUD
+        // doesn't display the stale value either.
+        characterIdleMoodAbort();
+        _moodLabel = nullptr;
         characterSetState(personaToChar(activeState));
         // Clear-on-switch: wipe sprite ONCE this frame so leftover pixels
         // from the previous GIF don't bleed through the new GIF's first
