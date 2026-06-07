@@ -146,8 +146,9 @@ static void wake() {
 
 bool responseSent = false;
 
-static void beep(uint16_t freq, uint16_t dur) {
+void beep(uint16_t freq, uint16_t dur) {
   // StickS3: M5.Speaker replaces M5.Beep; ES8311 initialized by M5.begin()
+  // Externally-linked so data.h can fire the completion chime.
   if (settings().sound) M5.Speaker.tone(freq, dur);
 }
 

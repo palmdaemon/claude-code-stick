@@ -7,6 +7,10 @@
 #include "character.h"
 #include "wifi_mgr.h"
 
+// Defined in main.cpp; respects settings().sound. Lets bridge fire a
+// completion chime via {"cmd":"chime","agent":"claude"}.
+extern void beep(uint16_t freq, uint16_t dur);
+
 struct TamaState {
   uint8_t  sessionsTotal;
   uint8_t  sessionsRunning;
@@ -145,6 +149,30 @@ static void _applyJson(const char* line, TamaState* out) {
   // LAN ASR endpoint init handshake. Bridge replies to our {"cmd":"hello",
   // "my_ip":"..."} with {"cmd":"init","mac_ip":"...","mac_port":...}.
   const char* initCmd = doc["cmd"];
+  // Completion chime: {"cmd":"chime","agent":"claude"|"codex"}.
+  // Two-tone "ding-dong" (perfect 5th up). Claude rides the A5/E6 pair,
+  // Codex sits an octave lower at E5/B5 — same character, distinct register
+  // so they're distinguishable when both agents are active.
+  // Volume bumped to 220 for presence, restored to 128 (mic.cpp's canonical
+  // post-recording level) after. tone() is async; isPlaying() waits for
+  // the queue to drain so the two notes don't overlap or clip.
+  if (initCmd && !strcmp(initCmd, "chime")) {
+    const char* agent = doc["agent"] | "claude";
+    M5.Speaker.setVolume(220);
+    if (!strcmp(agent, "codex")) {
+      beep(660, 150);
+      while (M5.Speaker.isPlaying()) delay(5);
+      beep(990, 200);
+    } else {
+      beep(880, 150);
+      while (M5.Speaker.isPlaying()) delay(5);
+      beep(1320, 200);
+    }
+    while (M5.Speaker.isPlaying()) delay(5);
+    M5.Speaker.setVolume(128);
+    _lastLiveMs = millis();
+    return;
+  }
   if (initCmd && !strcmp(initCmd, "init")) {
     const char* mip = doc["mac_ip"];
     uint16_t    mp  = doc["mac_port"] | 0;

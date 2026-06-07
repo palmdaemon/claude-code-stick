@@ -394,6 +394,9 @@ class Bridge:
         # Buddy character state tracking
         self._char_state: str = "idle"
         self._last_tool_at: float = 0.0
+        # Stop hook can fire multiple times in quick succession (sub-agents,
+        # interrupted turns); debounce so we don't double-beep.
+        self._last_chime_at: float = 0.0
         # Active project — last cwd basename a hook fired from. Shows up
         # in Echo's HUD line so user sees which project just triggered.
         self._project: str = ""
@@ -744,6 +747,21 @@ class Bridge:
                     log.info("Project: %s (cwd=%s)", new_project, cwd)
                     self._project = new_project
             await self._send_state()
+            return {"status": "ok"}
+        if action == "chime":
+            # One-shot completion chime. Echo plays a two-tone "ding-dong"
+            # via M5.Speaker.tone (gated by firmware-side settings().sound).
+            # Skip if BLE down — chime is fire-and-forget UX, not critical.
+            if not self._nus.is_connected:
+                return {"status": "no_device"}
+            import time
+            now = time.time()
+            if now - self._last_chime_at < 0.5:
+                return {"status": "debounced"}
+            self._last_chime_at = now
+            agent = request.get("agent", "claude")
+            await self._nus.write_line({"cmd": "chime", "agent": agent})
+            log.info("Chime: agent=%s", agent)
             return {"status": "ok"}
         if action == "wifi_add":
             # Push a WiFi credential pair through to Echo over BLE NUS.

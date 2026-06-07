@@ -10,6 +10,10 @@
     "PreToolUse": {
       "script": "scripts/on-pre-tool-use.py",
       "timeout": 2
+    },
+    "Stop": {
+      "script": "scripts/on-stop.py",
+      "timeout": 2
     }
   }
 }
