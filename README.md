@@ -48,7 +48,7 @@ This is an **independent fan project**, not affiliated with or endorsed by Anthr
 
 **Yes.** Open Claude Code (or another coding-agent CLI) and paste this prompt:
 
-> Set up claude-code-stick from https://github.com/s34g3r/claude-code-stick
+> Set up claude-code-stick from https://github.com/palmdaemon/claude-code-stick
 > following its README. I'm on macOS with a M5Stack StickS3 plugged in via
 > USB and I have an Alibaba Cloud DashScope account. Walk me through every
 > step including installing Homebrew, PlatformIO, the bridge Python venv,
